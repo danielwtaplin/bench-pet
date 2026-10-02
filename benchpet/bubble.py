@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 STYLE = """
 QLabel { color: #f2f2f5; font-size: 12px; }
@@ -12,11 +12,41 @@ QLabel[role="title"] { font-weight: 600; font-size: 13px; }
 QLabel[role="muted"] { color: #b4b4c0; }
 """
 
+MAX_WIDTH = 260
+BAR_COLOURS = ((0.9, QColor("#ff6b6b")), (0.7, QColor("#f5c26b")), (0.0, QColor("#7bd88f")))
+
+
+class Bar(QWidget):
+    """Thin rounded progress bar; green, then amber from 70%, red from 90%."""
+
+    def __init__(self, fraction: float):
+        super().__init__()
+        self.fraction = min(max(fraction, 0.0), 1.0)
+        self.setFixedHeight(6)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def colour(self) -> QColor:
+        return next(c for threshold, c in BAR_COLOURS if self.fraction >= threshold)
+
+    def paintEvent(self, _event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+        rect = QRectF(self.rect())
+        p.setBrush(QColor(255, 255, 255, 38))
+        p.drawRoundedRect(rect, 3, 3)
+        if self.fraction > 0:
+            p.setBrush(self.colour())
+            p.drawRoundedRect(QRectF(rect.x(), rect.y(), max(rect.width() * self.fraction, 6), rect.height()),
+                              3, 3)
+
+
 # Sections listed here come first, in this order; others follow as they arrive.
 SECTION_LABELS = {"task": "Task status", "activity": "Break reminder", "pomodoro": "Pomodoro", "calendar": "Calendar",
                   "countdown": "Countdown", "weather": "Weather", "music": "Music",
-                  "notifications": "Notifications"}
-SECTION_ORDER = ["task", "activity", "pomodoro", "calendar", "countdown", "weather", "music", "notifications"]
+                  "notifications": "Notifications", "usage": "AI usage"}
+OPT_IN = {"usage"}  # hidden unless turned on (config bubble.shown)
+SECTION_ORDER = ["task", "activity", "pomodoro", "calendar", "countdown", "weather", "music", "notifications", "usage"]
 
 
 class Bubble(QWidget):
@@ -29,16 +59,21 @@ class Bubble(QWidget):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(12, 9, 12, 9)
         self._layout.setSpacing(2)
-        # section → list of (text, role)
-        self._sections: dict[str, list[tuple[str, str]]] = {}
+        # section → list of (text, role), or (text, "bar", fraction) for a labelled progress bar
+        self._sections: dict[str, list[tuple]] = {}
         self.hidden: set[str] = set()  # sections the user turned off
 
-    def set_section(self, name: str, lines: list[tuple[str, str]] | None) -> None:
+    def set_section(self, name: str, lines: list[tuple] | None) -> None:
         if lines:
             self._sections[name] = lines
         else:
             self._sections.pop(name, None)
         self._rebuild()
+
+    @staticmethod
+    def hidden_from(config: dict) -> set[str]:
+        """Sections to hide: the ones turned off plus opt-in ones not turned on."""
+        return set(config.get("hidden", [])) | (OPT_IN - set(config.get("shown", [])))
 
     def set_hidden(self, hidden: set[str]) -> None:
         self.hidden = set(hidden)
@@ -61,13 +96,18 @@ class Bubble(QWidget):
         for i, lines in enumerate(self._sections[n] for n in self._visible()):
             if i:
                 self._layout.addSpacing(6)
-            for text, role in lines:
+            for text, role, *extra in lines:
                 label = QLabel(text)
-                label.setProperty("role", role)
+                label.setProperty("role", "muted" if role == "bar" else role)
                 self._layout.addWidget(label)
                 label.ensurePolished()  # pick up the bubble stylesheet's font before measuring
                 # Word-wrapped labels size to a narrow default, so size to the text instead.
-                label.setFixedWidth(min(label.fontMetrics().horizontalAdvance(text) + 4, 260))
+                width = label.fontMetrics().horizontalAdvance(text) + 4
+                if role == "bar":
+                    width = max(width, 200)  # bars line up, whatever their labels say
+                    self._layout.addWidget(Bar(extra[0] if extra else 0.0))
+                    self._layout.addSpacing(3)
+                label.setFixedWidth(min(width, MAX_WIDTH))
                 label.setWordWrap(True)
         self.adjustSize()
 

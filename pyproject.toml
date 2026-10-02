@@ -1,0 +1,21 @@
+[project]
+name = "bench-pet"
+version = "0.1.0"
+description = "A Linux desktop pet that shows useful at-a-glance info"
+requires-python = ">=3.12"
+# Also needs PyGObject (system `python3-gobject`; create the venv with
+# --system-site-packages) for D-Bus via Gio.
+dependencies = ["PySide6>=6.6", "PyYAML", "pywayland>=0.4.17", "icalendar>=6", "recurring-ical-events>=3"]
+
+[project.optional-dependencies]
+dev = ["pillow", "numpy", "scipy", "pytest"]
+
+[project.scripts]
+bench-pet = "benchpet.__main__:main"
+
+[tool.setuptools]
+packages = ["benchpet", "benchpet.sources"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

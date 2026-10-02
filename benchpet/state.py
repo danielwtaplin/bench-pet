@@ -14,7 +14,7 @@ from typing import Callable
 
 from benchpet.events import (
     AgentResponse, AwayChanged, CalendarReminder, ComputerActivity, CountdownReached, MusicChanged,
-    NotificationReceived, TaskEvent, PomodoroPhaseEnded, PomodoroUpdated, WeatherUpdated)
+    NotificationReceived, PlanUsage, TaskEvent, PomodoroPhaseEnded, PomodoroUpdated, WeatherUpdated)
 from benchpet.sprites import Activity, SpriteLibrary
 
 CHANNELS = ("away", "agent", "reading", "pomodoro", "working", "music", "coding")  # highest first
@@ -36,6 +36,7 @@ class StateManager:
         reading_seconds: float = 20,
         weather_chance: float = 0.25,
         coding_ambient_interval: tuple[float, float] = (45, 120),
+        usage_react_percent: float | None = 90,
     ):
         self.library = library
         self.on_change = on_change
@@ -49,6 +50,8 @@ class StateManager:
         self.coding_ambient_interval = coding_ambient_interval
         self._failures: list[float] = []  # times of recent `failed` tasks
         self._tired_since_break = False
+        self.usage_react_percent = usage_react_percent
+        self._usage: dict[tuple[str, str], float] = {}  # (agent, window) → last used percent
         self.weather: str | None = None  # current weather activity name
 
         self.channels: dict[str, str | None] = dict.fromkeys(CHANNELS)
@@ -141,6 +144,10 @@ class StateManager:
             self.weather = activity
             if changed and self._is_idle():
                 self.react(activity)
+        elif isinstance(event, PlanUsage):
+            reaction = self._usage_reaction(event)
+            if reaction and not self.channels["away"]:
+                self.react(reaction)
         elif isinstance(event, CountdownReached):
             if not self.channels["away"]:
                 self.react("celebrate")
@@ -197,6 +204,23 @@ class StateManager:
         """Idle, or coding with nothing more important going on."""
         return self.reaction is None and not any(
             activity for channel, activity in self.channels.items() if channel != "coding")
+
+    def _usage_reaction(self, event: PlanUsage) -> str | None:
+        """Running low when a window crosses the threshold; refreshed when one resets."""
+        if self.usage_react_percent is None:
+            return None
+        reaction = None
+        for window in event.windows:
+            key = (event.agent, window.name)
+            before = self._usage.get(key)
+            self._usage[key] = window.used
+            if before is None:
+                continue  # first report since startup: no crossing to react to
+            if before < self.usage_react_percent <= window.used:
+                reaction = "usage_low"
+            elif before >= self.usage_react_percent and window.used < before / 2 and reaction is None:
+                reaction = "refreshed"
+        return reaction
 
     def _failure_reaction(self) -> str:
         now = self.now()

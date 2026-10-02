@@ -315,3 +315,28 @@ def test_repeated_failures_escalate_and_done_resets(setup):
     clock.t = 11 * 60  # an old failure doesn't count
     state.handle(TaskEvent("failed"))
     assert state.current.name == "failed"
+
+
+def plan(used, window="5h"):
+    from benchpet.events import PlanUsage
+    from benchpet.usage import Window
+    return PlanUsage("claude", (Window(window, used, None),))
+
+
+def test_plan_usage_reacts_when_crossing_the_threshold_and_on_reset(setup):
+    state, _, _ = setup
+    state.handle(plan(95))  # first report: nothing to compare against
+    assert state.current.name == "idle"
+    state.handle(plan(20))
+    assert state.current.name == "refreshed"
+    state.activity_finished(state.current)
+    state.handle(plan(60))
+    assert state.current.name == "idle"
+    state.handle(plan(91))
+    assert state.current.name == "usage_low"
+    state.activity_finished(state.current)
+    state.handle(plan(93))  # still over: no repeat
+    assert state.current.name == "idle"
+    state.handle(AwayChanged("short"))
+    state.handle(plan(5))
+    assert state.current.name == "away_short"  # nobody's watching

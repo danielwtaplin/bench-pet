@@ -8,6 +8,7 @@
     bench-pet pomodoro start|stop|skip     # the pet's pomodoro timer
     bench-pet agent claude                 # Claude Code Stop hook (payload on stdin)
     bench-pet agent codex '<json>'         # Codex notify program
+    bench-pet statusline                   # Claude Code statusLine: forwards plan usage
 
 The protocol is one JSON object per line: {"cmd": "...", "message": "..."}.
 The client side uses the plain socket module so it starts instantly.
@@ -24,12 +25,12 @@ from pathlib import Path
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from benchpet.agent import MAX_SEND
-from benchpet.events import AgentResponse, EventBus, PomodoroCommand, TaskEvent
+from benchpet.events import AgentResponse, EventBus, PlanUsage, PomodoroCommand, TaskEvent
 from benchpet.sources.base import Source
 
 log = logging.getLogger(__name__)
 
-COMMANDS = ("working", "done", "failed", "celebrate", "clear", "pomodoro", "agent")
+COMMANDS = ("working", "done", "failed", "celebrate", "clear", "pomodoro", "agent", "statusline")
 POMODORO_ACTIONS = ("start", "stop", "skip")
 SOCKET_PATH = Path(os.environ.get("BENCH_PET_SOCKET")
                    or Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "bench-pet.sock")
@@ -57,12 +58,29 @@ def is_running(path: Path = SOCKET_PATH) -> bool:
         return False
 
 
-def parse(line: bytes) -> TaskEvent | PomodoroCommand | AgentResponse | None:
+def parse_plan_usage(data: dict) -> PlanUsage | None:
+    from benchpet.usage import Window
+    windows = []
+    for w in data.get("windows", []):
+        try:
+            resets = w.get("resets_at")
+            windows.append(Window(str(w["name"])[:10], float(w["used"]),
+                                  None if resets is None else float(resets)))
+        except (KeyError, TypeError, ValueError, AttributeError):
+            return None
+    return PlanUsage(str(data.get("agent", "claude"))[:40], tuple(windows)) if windows else None
+
+
+def parse(line: bytes) -> TaskEvent | PomodoroCommand | AgentResponse | PlanUsage | None:
     try:
         data = json.loads(line)
     except ValueError:
         return None
-    if not isinstance(data, dict) or data.get("cmd") not in COMMANDS:
+    if not isinstance(data, dict):
+        return None
+    if data.get("cmd") == "usage":
+        return parse_plan_usage(data)
+    if data.get("cmd") not in COMMANDS or data["cmd"] == "statusline":
         return None
     if data["cmd"] == "agent":
         text = str(data.get("message", ""))[:MAX_SEND].strip()

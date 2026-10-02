@@ -118,3 +118,14 @@ class ComputerActivity:
     mode: str  # idle | coding
     tier: str  # fresh | tired | exhausted (how long since the last break)
     session_minutes: float
+
+
+@dataclass(frozen=True)
+class PlanUsage:
+    agent: str  # claude | codex
+    windows: tuple  # usage.Window: name (5h | week), used percent, resets_at
+
+
+@dataclass(frozen=True)
+class TokenUsage:
+    totals: object  # usage.DayTotals for today

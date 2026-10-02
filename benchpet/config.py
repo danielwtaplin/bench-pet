@@ -17,7 +17,7 @@ DEFAULTS = {
     "walk_chance": 0.3,  # fraction of ambient picks that are a little walk instead
     "music_dance_interval": [15, 40],  # seconds between listen ↔ dance switches
     "sources": {"mpris": True, "idle": True, "notifications": True, "countdown": True, "calendar": True, "weather": True, "pomodoro": True,
-                "activity": True},
+                "activity": True, "usage": True},
     "countdown": {
         "label": "Weekend",
         "week_end": {"day": "friday", "time": "17:00"},
@@ -61,7 +61,12 @@ DEFAULTS = {
         "long_break_minutes": 15,
         "rounds_before_long_break": 4,
     },
-    "bubble": {"hidden": []},  # info panel sections to leave out, e.g. [weather, countdown]
+    # Info panel sections to leave out, e.g. [weather, countdown]; opt-in ones (usage) to include.
+    "bubble": {"hidden": [], "shown": []},
+    "usage": {
+        "claude_logs": "~/.claude/projects",  # session transcripts, for today's tokens
+        "react_at_percent": 90,  # pet reacts when a plan window passes this; null to turn off
+    },
     "agent": {
         "only_when_unfocused": True,  # stay quiet if the agent's terminal is in front
         "max_chars": 600,  # reply text shown in the speech bubble

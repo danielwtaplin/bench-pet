@@ -6,7 +6,7 @@ from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QGuiApplication
 from PySide6.QtWidgets import QApplication, QMenu, QVBoxLayout, QWidget
 
-from benchpet.bubble import SECTION_LABELS, Bubble
+from benchpet.bubble import OPT_IN, SECTION_LABELS, Bubble
 from benchpet.config import Config
 from benchpet.renderer import PetWidget
 from benchpet.speech import SpeechBubble
@@ -31,7 +31,7 @@ class PetWindow(QWidget):
         self.pet.pose_changed.connect(self._on_pose_changed)
 
         self.bubble = Bubble()
-        self.bubble.set_hidden(set(config["bubble"]["hidden"]))
+        self.bubble.set_hidden(Bubble.hidden_from(config["bubble"]))
         self.speech = SpeechBubble()
         self._bubble_pinned = False
         self._press: QPoint | None = None
@@ -223,7 +223,8 @@ class PetWindow(QWidget):
         hidden = set(self.bubble.hidden)
         (hidden.discard if shown else hidden.add)(name)
         self.bubble.set_hidden(hidden)
-        self.config["bubble"]["hidden"] = sorted(hidden)
+        self.config["bubble"]["hidden"] = sorted(hidden - OPT_IN)
+        self.config["bubble"]["shown"] = sorted(OPT_IN - hidden)
         self.config.save()
         if self.bubble.isVisible() or self._bubble_pinned:
             self._place_bubble()

@@ -12,6 +12,7 @@ import signal
 import sys
 import time
 from collections import deque
+from pathlib import Path
 
 # Run under XWayland: Wayland doesn't let clients position their own windows,
 # which the pet needs for dragging and walking. Layer-shell is a later option.
@@ -25,6 +26,7 @@ from benchpet import control  # noqa: E402
 from benchpet.sources.weather import ICONS  # noqa: E402
 from benchpet.events import (  # noqa: E402
     CalendarReminder, CalendarUpdated, ComputerActivity, CountdownsUpdated, EventBus, FocusChanged, MusicChanged,
+    PlanUsage, TokenUsage,
     AgentResponse, MediaCommand, NotificationReceived, PomodoroCommand, PomodoroPhaseEnded, PomodoroUpdated, TaskEvent,
     WeatherUpdated)
 from benchpet.sprites import load_library  # noqa: E402
@@ -129,9 +131,51 @@ def run_agent_command(args: list[str]) -> int:
     return 0
 
 
+STATUSLINE_DUMP = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "bench-pet-statusline.json"
+
+
+def run_statusline_command(args: list[str]) -> int:
+    """`bench-pet statusline [-- command...]`: Claude Code statusLine.
+
+    Forwards the plan usage windows to the pet, then prints a short status line, or
+    hands the payload to `command` and prints whatever it prints. Never fails.
+    """
+    import json
+    import subprocess
+    from dataclasses import asdict
+
+    from benchpet.usage import parse_rate_limits, statusline_text
+
+    raw = "" if sys.stdin.isatty() else sys.stdin.read()
+    try:
+        payload = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        payload = {}
+    payload = payload if isinstance(payload, dict) else {}
+    try:  # last payload, for checking what Claude Code sends
+        STATUSLINE_DUMP.write_text(raw)
+    except OSError:
+        pass
+    windows = parse_rate_limits(payload)
+    if windows:
+        control.send("usage", agent="claude", windows=[asdict(w) for w in windows])
+    chained = args[1:] if args[:1] == ["--"] else []
+    if chained:
+        try:
+            result = subprocess.run(chained, input=raw, capture_output=True, text=True, timeout=5)
+            sys.stdout.write(result.stdout)
+        except (OSError, subprocess.SubprocessError):
+            pass
+    else:
+        print(statusline_text(payload, windows))
+    return 0
+
+
 def run_command(args: list[str]) -> int:
     if args[0] == "agent":
         return run_agent_command(args[1:])
+    if args[0] == "statusline":
+        return run_statusline_command(args[1:])
     cmd, message = args[0], " ".join(args[1:])
     if cmd not in control.COMMANDS or (cmd == "pomodoro" and message not in control.POMODORO_ACTIONS):
         print(f"usage: bench-pet [{'|'.join(control.COMMANDS)}] [message]\n"
@@ -170,6 +214,7 @@ def main() -> int:
         reading_seconds=config["notifications"]["reading_seconds"],
         weather_chance=config["weather"]["ambient_chance"],
         coding_ambient_interval=tuple(config["activity"]["ambient_interval"]),
+        usage_react_percent=config["usage"]["react_at_percent"],
     )
     window.pet.activity_finished.connect(state.activity_finished)
     window.on_celebrate = lambda: state.react("celebrate")
@@ -250,6 +295,25 @@ def main() -> int:
                      "muted")]))
     bus.event.connect(lambda e: isinstance(e, ComputerActivity)
                       and window.set_bubble_section("activity", activity_lines(e)))
+    from benchpet.usage import usage_lines
+    usage = {"windows": [], "received_at": None, "totals": None}
+
+    def show_usage() -> None:
+        window.set_bubble_section("usage", usage_lines(usage["windows"], usage["received_at"],
+                                                       usage["totals"], time.time()))
+
+    def on_usage(e) -> None:
+        if isinstance(e, PlanUsage):
+            usage.update(windows=list(e.windows), received_at=time.time())
+        elif isinstance(e, TokenUsage):
+            usage["totals"] = e.totals
+        else:
+            return
+        show_usage()
+    bus.event.connect(on_usage)
+    usage_refresh = QTimer()  # keep "resets"/"as of" current between reports
+    usage_refresh.timeout.connect(show_usage)
+    usage_refresh.start(60_000)
     bus.event.connect(lambda e: isinstance(e, CountdownsUpdated)
                       and window.set_bubble_section("countdown", countdown_lines(e)))
 
@@ -286,6 +350,9 @@ def main() -> int:
     if config["sources"].get("calendar"):
         from benchpet.sources.calendar import CalendarSource
         sources.append(CalendarSource(bus, config["calendar"]))
+    if config["sources"].get("usage"):
+        from benchpet.sources.usage import UsageSource
+        sources.append(UsageSource(bus, config["usage"]))
     for source in sources:
         source.start()
 
