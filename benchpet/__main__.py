@@ -12,7 +12,6 @@ import signal
 import sys
 import time
 from collections import deque
-from pathlib import Path
 
 # Run under XWayland: Wayland doesn't let clients position their own windows,
 # which the pet needs for dragging and walking. Layer-shell is a later option.
@@ -95,14 +94,6 @@ def activity_lines(event: ComputerActivity) -> list[tuple[str, str]] | None:
     return [(text + (" · time for one?" if event.tier == "exhausted" else ""), "muted")]
 
 
-def calendar_lines(event: CalendarUpdated, show: int) -> list[tuple[str, str]] | None:
-    from datetime import datetime
-
-    from benchpet.sources.calendar import describe
-    now = datetime.now().astimezone()
-    return [(f"📅  {describe(ev, now)}", "muted") for ev in event.events[:show]] or None
-
-
 def run_agent_command(args: list[str]) -> int:
     """`bench-pet agent <name> [json|text]`: forward an agent's reply to the pet.
 
@@ -131,9 +122,6 @@ def run_agent_command(args: list[str]) -> int:
     return 0
 
 
-STATUSLINE_DUMP = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "bench-pet-statusline.json"
-
-
 def run_statusline_command(args: list[str]) -> int:
     """`bench-pet statusline [-- command...]`: Claude Code statusLine.
 
@@ -144,7 +132,7 @@ def run_statusline_command(args: list[str]) -> int:
     import subprocess
     from dataclasses import asdict
 
-    from benchpet.usage import parse_rate_limits, statusline_text
+    from benchpet.usage import STATUSLINE_DUMP, parse_rate_limits, statusline_text
 
     raw = "" if sys.stdin.isatty() else sys.stdin.read()
     try:
@@ -279,8 +267,16 @@ def main() -> int:
         else:
             task_clear.stop()
     bus.event.connect(on_task)
-    bus.event.connect(lambda e: isinstance(e, CalendarUpdated) and window.set_bubble_section(
-        "calendar", calendar_lines(e, config["calendar"]["show"])))
+    def has_feeds() -> bool:
+        return bool(config["sources"].get("calendar") and config["calendar"]["feeds"])
+    window.calendar.set_events((), has_feeds())
+    calendar_events: list = []
+
+    def on_calendar(e) -> None:
+        if isinstance(e, CalendarUpdated):
+            calendar_events[:] = e.events
+            window.calendar.set_events(e.events, has_feeds())
+    bus.event.connect(on_calendar)
     bus.event.connect(lambda e: isinstance(e, CalendarReminder)
                       and window.flash_bubble(REMINDER_FLASH_SECONDS))
     def on_pomodoro(e) -> None:
@@ -304,7 +300,7 @@ def main() -> int:
 
     def on_usage(e) -> None:
         if isinstance(e, PlanUsage):
-            usage.update(windows=list(e.windows), received_at=time.time())
+            usage.update(windows=list(e.windows), received_at=e.received_at or time.time())
         elif isinstance(e, TokenUsage):
             usage["totals"] = e.totals
         else:
@@ -349,7 +345,21 @@ def main() -> int:
         sources.append(WeatherSource(bus, config["weather"]))
     if config["sources"].get("calendar"):
         from benchpet.sources.calendar import CalendarSource
-        sources.append(CalendarSource(bus, config["calendar"]))
+        calendar_source = CalendarSource(bus, config["calendar"])
+        sources.append(calendar_source)
+    else:
+        calendar_source = None
+
+    def on_settings_applied(changed: set[str]) -> None:
+        window.apply_settings()
+        if "calendar" in changed and calendar_source:
+            calendar_source.reconfigure(config["calendar"])
+        window.calendar.set_events(calendar_events, has_feeds())
+
+    def open_settings() -> None:
+        from benchpet.settings import SettingsDialog
+        SettingsDialog(config, on_settings_applied).exec()
+    window.on_settings = open_settings
     if config["sources"].get("usage"):
         from benchpet.sources.usage import UsageSource
         sources.append(UsageSource(bus, config["usage"]))

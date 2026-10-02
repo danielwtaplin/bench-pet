@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QRectF, Qt
+from PySide6.QtCore import QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
@@ -42,14 +42,16 @@ class Bar(QWidget):
 
 
 # Sections listed here come first, in this order; others follow as they arrive.
-SECTION_LABELS = {"task": "Task status", "activity": "Break reminder", "pomodoro": "Pomodoro", "calendar": "Calendar",
+SECTION_LABELS = {"task": "Task status", "activity": "Break reminder", "pomodoro": "Pomodoro",
                   "countdown": "Countdown", "weather": "Weather", "music": "Music",
                   "notifications": "Notifications", "usage": "AI usage"}
 OPT_IN = {"usage"}  # hidden unless turned on (config bubble.shown)
-SECTION_ORDER = ["task", "activity", "pomodoro", "calendar", "countdown", "weather", "music", "notifications", "usage"]
+SECTION_ORDER = ["task", "activity", "pomodoro", "countdown", "weather", "music", "notifications", "usage"]
 
 
 class Bubble(QWidget):
+    hover_changed = Signal(bool)
+
     def __init__(self):
         super().__init__(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
                          | Qt.WindowDoesNotAcceptFocus)
@@ -119,6 +121,12 @@ class Bubble(QWidget):
         self.adjustSize()
         self.move(anchor.x() - self.width() // 2, anchor.y() - self.height())
         self.show()
+
+    def enterEvent(self, _event) -> None:
+        self.hover_changed.emit(True)
+
+    def leaveEvent(self, _event) -> None:
+        self.hover_changed.emit(False)
 
     def paintEvent(self, _event) -> None:
         p = QPainter(self)

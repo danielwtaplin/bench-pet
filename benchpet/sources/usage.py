@@ -7,9 +7,9 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer
 
-from benchpet.events import EventBus, TokenUsage
+from benchpet.events import EventBus, PlanUsage, TokenUsage
 from benchpet.sources.base import Source
-from benchpet.usage import TranscriptScanner
+from benchpet.usage import TranscriptScanner, last_report
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +25,10 @@ class UsageSource(Source):
         self._timer.timeout.connect(self.tick)
 
     def start(self) -> None:
+        restored = last_report()
+        if restored:  # plan figures from before the restart, until Claude Code sends fresh ones
+            windows, received = restored
+            self.bus.publish(PlanUsage("claude", tuple(windows), received))
         self.tick()
         self._timer.start(60_000)
 

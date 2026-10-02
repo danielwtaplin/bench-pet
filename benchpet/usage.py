@@ -12,6 +12,7 @@ API; on a subscription that's a yardstick, not a bill.
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -34,6 +35,9 @@ PRICING = {
     "claude-haiku-4": (1.0, 5.0, 0.10),
 }
 WINDOW_NAMES = {"five_hour": "5h", "seven_day": "week"}
+# `bench-pet statusline` keeps the last payload here, so a restarted pet has figures straight away.
+STATUSLINE_DUMP = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "bench-pet-statusline.json"
+RESTORE_MAX_AGE = 12 * 3600
 
 
 @dataclass(frozen=True)
@@ -56,6 +60,19 @@ def parse_rate_limits(payload: dict) -> list[Window]:
             windows.append(Window(name, float(w["used_percentage"]),
                                   float(resets) if isinstance(resets, (int, float)) else None))
     return windows
+
+
+def last_report(path: Path = STATUSLINE_DUMP, now: float | None = None) -> tuple[list[Window], float] | None:
+    """Windows from the last status line payload and when it arrived, if recent enough."""
+    try:
+        received = path.stat().st_mtime
+        payload = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if (now or time.time()) - received > RESTORE_MAX_AGE or not isinstance(payload, dict):
+        return None
+    windows = parse_rate_limits(payload)
+    return (windows, received) if windows else None
 
 
 def current_used(window: Window, now: float) -> float:

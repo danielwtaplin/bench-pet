@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QRect, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QGuiApplication
 from PySide6.QtWidgets import QApplication, QMenu, QVBoxLayout, QWidget
 
 from benchpet.bubble import OPT_IN, SECTION_LABELS, Bubble
+from benchpet.calendar_view import CalendarButton, CalendarView
 from benchpet.config import Config
 from benchpet.renderer import PetWidget
 from benchpet.speech import SpeechBubble
@@ -15,6 +16,7 @@ from benchpet.sprites import Activity, SpriteLibrary
 SIZES = {"Small": 140, "Medium": 180, "Large": 240}
 WALK_RANGE = 80  # max px the pet strolls away from where it was put down
 DRAG_THRESHOLD = 4
+LEAVE_GRACE_MS = 250  # time to move from the pet onto the bubble or calendar without them closing
 
 
 class PetWindow(QWidget):
@@ -32,8 +34,19 @@ class PetWindow(QWidget):
 
         self.bubble = Bubble()
         self.bubble.set_hidden(Bubble.hidden_from(config["bubble"]))
+        self.bubble.hover_changed.connect(self._on_popup_hover)
+        self.calendar = CalendarView()
+        self.calendar.hover_changed.connect(self._on_popup_hover)
+        self.calendar_button = CalendarButton()
+        self.calendar_button.clicked.connect(self.toggle_calendar)
+        self._calendar_open = False  # opened with the button/menu, independent of the info panel
+        self._over_popup = False
+        self._leave_timer = QTimer(self, singleShot=True, interval=LEAVE_GRACE_MS)
+        self._leave_timer.timeout.connect(self._update_info)
+        self.on_settings = lambda: None
         self.speech = SpeechBubble()
         self._bubble_pinned = False
+        self._hovered = False  # cursor over the pet; its input area then only grows
         self._press: QPoint | None = None
         self._drag_offset = QPoint()
         self._dragging = False
@@ -50,6 +63,7 @@ class PetWindow(QWidget):
         self.adjustSize()
         self.anchor = self._initial_position()
         self.move(self.anchor)
+        self.apply_calendar_settings()
 
     def _initial_position(self) -> QPoint:
         if self.config.get("position"):
@@ -67,6 +81,8 @@ class PetWindow(QWidget):
             self._start_walk(activity)
 
     def _start_walk(self, activity: Activity) -> None:
+        if self._hovered:
+            return  # walking off would leave the cursor behind and close the bubble
         duration = sum(activity.hold) / 2 * len(activity.poses)
         offset = self.x() - self.anchor.x()
         # Head back towards the anchor if we've wandered, otherwise pick a side.
@@ -89,14 +105,14 @@ class PetWindow(QWidget):
 
     def set_bubble_section(self, name: str, lines) -> None:
         self.bubble.set_section(name, lines)
-        if self.bubble.isVisible() or self._bubble_pinned:
+        if self.bubble.isVisible() or self._info_open():
             self._place_bubble()
 
     def say(self, header: str, text: str, seconds: float, can_open: bool) -> None:
-        self.bubble.hide()  # one bubble at a time
         self.speech.say(header, text, seconds, can_open)
         self._place_speech()
         self.speech.show()
+        self._update_info()  # one bubble at a time
 
     def _place_speech(self) -> None:
         head = self.mapToGlobal(QPoint(self.width() // 2, self.pet.pose_rect().top() + 6))
@@ -110,34 +126,102 @@ class PetWindow(QWidget):
         self.bubble.show_above(self.mapToGlobal(QPoint(self.width() // 2, top - 4)))
 
     def flash_bubble(self, seconds: float) -> None:
-        """Pop the bubble up for a while without the user hovering."""
-        self._place_bubble()
+        """Pop the info panel (and calendar) up for a while without the user hovering."""
         self._flash_timer.start(int(seconds * 1000))
+        self._update_info()
 
     def _end_flash(self) -> None:
-        if not self._bubble_pinned and not self.underMouse():
+        self._update_info()
+
+    def _info_open(self) -> bool:
+        """Whether the info panel should be showing: hovered, pinned or flashing."""
+        if self.speech.isVisible() or self._dragging:
+            return False
+        return (self._hovered or self._over_popup or self._bubble_pinned
+                or self._flash_timer.isActive())
+
+    def _update_info(self) -> None:
+        if self._info_open():
+            self._place_bubble()
+        else:
             self.bubble.hide()
+        self._update_calendar()
+
+    def _on_popup_hover(self, inside: bool) -> None:
+        self._over_popup = inside
+        if inside:
+            self._leave_timer.stop()
+        else:
+            self._leave_timer.start()
 
     def enterEvent(self, _event) -> None:
-        if not self._dragging:
-            self._place_bubble()
+        self._hovered = True
+        self._leave_timer.stop()
+        self._update_info()
 
     def leaveEvent(self, _event) -> None:
-        if not self._bubble_pinned and not self._flash_timer.isActive():
-            self.bubble.hide()
+        self._hovered = False
+        self.setMask(self.pet.input_region())  # back to the pose's outline
+        self._leave_timer.start()
+
+    # --- calendar --------------------------------------------------------
+
+    def apply_calendar_settings(self) -> None:
+        conf = self.config["calendar_view"]
+        self.calendar.configure(conf["layout"], conf["agenda_days"])
+        if not conf["button"]:
+            self._calendar_open = False
+        self.calendar_button.set_active(self._calendar_open)
+        self._update_calendar()
+
+    def toggle_calendar(self) -> None:
+        self._calendar_open = not self._calendar_open
+        self.calendar_button.set_active(self._calendar_open)
+        self._update_calendar()
+
+    def _pose_global(self) -> QRect:
+        rect = self.pet.pose_rect()
+        return QRect(self.pet.mapToGlobal(rect.topLeft()), rect.size())
+
+    def _update_calendar(self) -> None:
+        conf = self.config["calendar_view"]
+        with_panel = conf["with_info_panel"] and self.calendar.has_feeds and self._info_open()
+        screen = (self.screen() or QGuiApplication.primaryScreen()).availableGeometry()
+        if not self._dragging and (self._calendar_open or with_panel) and self.isVisible():
+            self.calendar.place_beside(self._pose_global(), screen, conf["side"])
+            self.calendar.show()
+        else:
+            self.calendar.hide()
+        if conf["button"] and self.isVisible():
+            self.calendar_button.place_below(self._pose_global(), screen)
+            self.calendar_button.show()
+        else:
+            self.calendar_button.hide()
+
+    def showEvent(self, _event) -> None:
+        self._update_calendar()
 
     def moveEvent(self, _event) -> None:
         if self.bubble.isVisible():
             self._place_bubble()
         if self.speech.isVisible():
             self._place_speech()
+        if self.calendar.isVisible() or self.calendar_button.isVisible():
+            self._update_calendar()
 
     def _on_pose_changed(self) -> None:
-        self.setMask(self.pet.input_region())
+        region = self.pet.input_region()
+        if self._hovered:
+            # A new pose with a different outline mustn't leave a still cursor outside it
+            # (that would count as leaving and close the bubble), so only grow while hovered.
+            region = region.united(self.mask())
+        self.setMask(region)
         if self.bubble.isVisible():
             self._place_bubble()
         if self.speech.isVisible():
             self._place_speech()
+        if self.calendar.isVisible() or self.calendar_button.isVisible():
+            self._update_calendar()
 
     # --- dragging / clicking ---------------------------------------------
 
@@ -153,7 +237,7 @@ class PetWindow(QWidget):
         if not self._dragging and (pos - self._press).manhattanLength() > DRAG_THRESHOLD:
             self._dragging = True
             self._walk.stop()
-            self.bubble.hide()
+            self._update_info()
         if self._dragging:
             self.move(pos - self._drag_offset)
 
@@ -166,10 +250,9 @@ class PetWindow(QWidget):
             self.config.save()
         else:
             self._bubble_pinned = not self._bubble_pinned
-            if self._bubble_pinned:
-                self._place_bubble()
         self._press = None
         self._dragging = False
+        self._update_info()
 
     # --- menu ------------------------------------------------------------
 
@@ -195,6 +278,10 @@ class PetWindow(QWidget):
             action.setCheckable(True)
             action.setChecked(name not in self.bubble.hidden)
             action.toggled.connect(lambda on, n=name: self._set_section_shown(n, on))
+        calendar = menu.addAction("Calendar")
+        calendar.setCheckable(True)
+        calendar.setChecked(self._calendar_open)
+        calendar.toggled.connect(lambda _on: self.toggle_calendar())
         size_menu = menu.addMenu("Size")
         group = QActionGroup(size_menu)
         for label, height in SIZES.items():
@@ -216,6 +303,7 @@ class PetWindow(QWidget):
                 lambda: self.on_pomodoro("start"))
         menu.addAction("Celebrate!").triggered.connect(lambda: self.on_celebrate())
         menu.addSeparator()
+        menu.addAction("Settings…").triggered.connect(lambda: self.on_settings())
         menu.addAction("Quit").triggered.connect(QApplication.quit)
         return menu
 
@@ -228,6 +316,14 @@ class PetWindow(QWidget):
         self.config.save()
         if self.bubble.isVisible() or self._bubble_pinned:
             self._place_bubble()
+
+    def apply_settings(self) -> None:
+        """Re-read the config after the Settings window saved it."""
+        self.bubble.set_hidden(Bubble.hidden_from(self.config["bubble"]))
+        if self.pet.display_height != self.config["height"]:
+            self._set_height(self.config["height"])
+        self.apply_calendar_settings()
+        self._update_info()
 
     def _set_height(self, height: int) -> None:
         bottom = self.y() + self.height()

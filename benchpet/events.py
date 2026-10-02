@@ -57,7 +57,7 @@ class TaskEvent:
 
 @dataclass(frozen=True)
 class CalendarUpdated:
-    events: tuple  # CalEvents that haven't ended yet, sorted by start
+    events: tuple  # CalEvents from the start of this month to a few weeks ahead, sorted by start
 
 
 @dataclass(frozen=True)
@@ -124,6 +124,7 @@ class ComputerActivity:
 class PlanUsage:
     agent: str  # claude | codex
     windows: tuple  # usage.Window: name (5h | week), used percent, resets_at
+    received_at: float | None = None  # epoch seconds, when restored from an earlier report
 
 
 @dataclass(frozen=True)

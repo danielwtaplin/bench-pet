@@ -138,3 +138,17 @@ def test_bubble_renders_bars():
     bars = b.findChildren(Bar)
     assert [bar.fraction for bar in bars] == [0.95, 0.1]
     assert bars[0].colour().name() == "#ff6b6b" and bars[1].colour().name() == "#7bd88f"
+
+
+def test_last_report_restores_recent_payloads(tmp_path):
+    import os
+    from benchpet.usage import last_report
+    dump = tmp_path / "statusline.json"
+    assert last_report(dump) is None
+    dump.write_text(json.dumps(PAYLOAD))
+    windows, received = last_report(dump)
+    assert [w.name for w in windows] == ["5h", "week"]
+    os.utime(dump, (received - 13 * 3600, received - 13 * 3600))
+    assert last_report(dump) is None  # too old to trust
+    dump.write_text("{}")
+    assert last_report(dump) is None

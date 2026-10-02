@@ -40,13 +40,19 @@ DEFAULTS = {
                         "kate", "emacs", "neovide", "nvim"],
     },
     "calendar": {
-        # ICS feeds: Google "Secret address in iCal format", Outlook "Publish calendar" ICS link,
-        # or a local .ics path. e.g. [{name: Work, url: "https://outlook.office365.com/...ics"}]
+        # Easiest to edit in Settings → Calendar. ICS feeds: Google "Secret address in iCal
+        # format", Outlook "Publish calendar" ICS link, or a local .ics path, e.g.
+        # [{name: Work, url: "https://outlook.office365.com/...ics", colour: "#4c8bf5"}]
         "feeds": [],
         "refresh_minutes": 15,
-        "lookahead_hours": 36,
-        "remind_minutes": 10,  # pet reacts and the bubble pops up this long before an event
-        "show": 3,  # events listed in the bubble
+        "remind_minutes": 10,  # pet reacts and the calendar pops up this long before an event
+    },
+    "calendar_view": {  # the white card beside the pet
+        "with_info_panel": True,  # opens and closes with the info panel (hover / click)
+        "button": False,  # a calendar button below the pet that opens and closes it on its own
+        "layout": "agenda",  # agenda | timeline | month
+        "agenda_days": 4,  # days listed in the agenda, from today
+        "side": "auto",  # auto | left | right of the pet
     },
     "weather": {
         "location": None,  # e.g. "Wellington"; or set latitude/longitude instead

@@ -1,9 +1,13 @@
-"""Calendar source: upcoming events from ICS feeds or files.
+"""Calendar source: events from ICS feeds or files.
 
 Google Calendar and Outlook both publish a private "secret address in iCal
 format", so one mechanism covers both without OAuth. Feeds are fetched and
 expanded (recurrences included) on a worker thread; results come back to the
 GUI thread via a Qt signal.
+
+Each configured feed is built by a provider keyed on its `type` (only "ics"
+so far), so an account-based provider (e.g. Google sign-in) can be added
+without touching the rest.
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ class CalEvent:
     all_day: bool
     calendar: str
     uid: str = ""
+    colour: str = ""  # the feed's colour, e.g. "#4c8bf5"
 
     @property
     def key(self) -> str:
@@ -48,7 +53,7 @@ def _as_local(value) -> tuple[datetime, bool]:
     return datetime.combine(value, datetime.min.time()).astimezone(), True
 
 
-def upcoming(ics: bytes, start: datetime, end: datetime, calendar: str) -> list[CalEvent]:
+def upcoming(ics: bytes, start: datetime, end: datetime, calendar: str, colour: str = "") -> list[CalEvent]:
     """Events overlapping [start, end), recurrences expanded, sorted by start."""
     cal = icalendar.Calendar.from_ical(ics)
     events = []
@@ -65,7 +70,7 @@ def upcoming(ics: bytes, start: datetime, end: datetime, calendar: str) -> list[
         else:
             e = s + (timedelta(days=1) if all_day else timedelta(0))
         events.append(CalEvent(str(comp.get("SUMMARY", "(no title)")), s, e, all_day,
-                               calendar, str(comp.get("UID", ""))))
+                               calendar, str(comp.get("UID", "")), colour))
     return sorted(events, key=lambda ev: (ev.start, ev.summary))
 
 
@@ -108,6 +113,42 @@ def fetch(source: str, timeout: float = 20) -> bytes:
     return Path(source.removeprefix("file://")).expanduser().read_bytes()
 
 
+FEED_COLOURS = ["#4c8bf5", "#e8710a", "#34a853", "#a142f4", "#e52592", "#12a4af"]
+FETCH_DAYS = 35  # from the start of this month, so the month view has its days too
+
+
+class IcsFeed:
+    """A Google/Outlook secret iCal address, a webcal:// link or a local .ics file."""
+
+    def __init__(self, conf: dict, colour: str):
+        self.name = conf.get("name") or "Calendar"
+        self.url = conf["url"]
+        self.colour = conf.get("colour") or colour
+
+    def events(self, start: datetime, end: datetime) -> list[CalEvent]:
+        return upcoming(fetch(self.url), start, end, self.name, self.colour)
+
+
+PROVIDERS = {"ics": IcsFeed}
+
+
+def make_feeds(confs: list[dict]) -> list:
+    feeds = []
+    for i, conf in enumerate(confs):
+        provider = PROVIDERS.get(conf.get("type", "ics"))
+        if provider is None or not conf.get("url"):
+            log.warning("calendar: skipping feed %r (unknown type or no url)", conf.get("name"))
+            continue
+        feeds.append(provider(conf, FEED_COLOURS[i % len(FEED_COLOURS)]))
+    return feeds
+
+
+def fetch_range(now: datetime) -> tuple[datetime, datetime]:
+    """From the start of this month to FETCH_DAYS past today."""
+    today = datetime.combine(now.date(), datetime.min.time()).astimezone()
+    return today.replace(day=1), today + timedelta(days=FETCH_DAYS)
+
+
 class _Relay(QObject):
     loaded = Signal(object)  # list[CalEvent]
 
@@ -117,9 +158,8 @@ class CalendarSource(Source):
 
     def __init__(self, bus: EventBus, config: dict, now: Callable[[], datetime] = None):
         super().__init__(bus)
-        self.feeds = [(f.get("name", "Calendar"), f["url"]) for f in config.get("feeds", [])]
+        self.feeds = make_feeds(config.get("feeds", []))
         self.refresh = config.get("refresh_minutes", 15) * 60_000
-        self.lookahead = timedelta(hours=config.get("lookahead_hours", 36))
         self.remind = timedelta(minutes=config.get("remind_minutes", 10))
         self.now = now or (lambda: datetime.now().astimezone())
         self.events: list[CalEvent] = []
@@ -134,7 +174,21 @@ class CalendarSource(Source):
 
     def start(self) -> None:
         if not self.feeds:
-            log.info("calendar: no feeds configured (calendar.feeds in config.yaml)")
+            log.info("calendar: no feeds configured (Settings → Calendar)")
+            return
+        self.reload()
+        self._refresh_timer.start(self.refresh)
+        self._tick_timer.start(30_000)
+
+    def reconfigure(self, config: dict) -> None:
+        """Feeds or timings changed in Settings: refetch now."""
+        self.feeds = make_feeds(config.get("feeds", []))
+        self.refresh = config.get("refresh_minutes", 15) * 60_000
+        self.remind = timedelta(minutes=config.get("remind_minutes", 10))
+        if not self.feeds:
+            self._refresh_timer.stop()
+            self._tick_timer.stop()
+            self._on_loaded([])
             return
         self.reload()
         self._refresh_timer.start(self.refresh)
@@ -149,14 +203,13 @@ class CalendarSource(Source):
         self._pool.submit(self._load)
 
     def _load(self) -> None:  # worker thread
-        now = self.now()
-        start = datetime.combine(now.date(), datetime.min.time()).astimezone()
+        start, end = fetch_range(self.now())
         events = []
-        for name, url in self.feeds:
+        for feed in list(self.feeds):
             try:
-                events += upcoming(fetch(url), start, now + self.lookahead, name)
+                events += feed.events(start, end)
             except Exception as e:  # one bad feed shouldn't hide the others
-                log.warning("calendar: %s: %s", name, e)
+                log.warning("calendar: %s: %s", feed.name, e)
         events.sort(key=lambda ev: (ev.start, ev.summary))
         self._relay.loaded.emit(events)
 
@@ -169,5 +222,4 @@ class CalendarSource(Source):
         for ev in due_reminders(self.events, now, self.remind, self._reminded):
             self._reminded.add(ev.key)
             self.bus.publish(CalendarReminder(ev))
-        current = tuple(ev for ev in self.events if ev.end > now)
-        self.bus.publish(CalendarUpdated(current))
+        self.bus.publish(CalendarUpdated(tuple(self.events)))
