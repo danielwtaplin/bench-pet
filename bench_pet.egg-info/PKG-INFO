@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: bench-pet
+Version: 0.1.0
+Summary: A Linux desktop pet that shows useful at-a-glance info
+Requires-Python: >=3.12
+Requires-Dist: PySide6>=6.6
+Requires-Dist: PyYAML
+Requires-Dist: pywayland>=0.4.17
+Requires-Dist: icalendar>=6
+Requires-Dist: recurring-ical-events>=3
+Provides-Extra: dev
+Requires-Dist: pillow; extra == "dev"
+Requires-Dist: numpy; extra == "dev"
+Requires-Dist: scipy; extra == "dev"
+Requires-Dist: pytest; extra == "dev"
