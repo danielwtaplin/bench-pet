@@ -195,6 +195,12 @@ activities:
     hold: [6, 12]
     motion: breathe
 
+  usage_low:  # an AI plan window just passed usage.react_at_percent
+    poses: [stress/06, stress/13, stress/15]
+    mode: oneshot
+    hold: [2, 3]
+    motion: none
+
   # --- Tasks (driven by `bench-pet working|done|failed`) ---
   working:
     poses: [coding/02, coding/05, coding/09, coding/08, coding/12]

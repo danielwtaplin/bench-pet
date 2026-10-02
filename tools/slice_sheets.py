@@ -44,7 +44,7 @@ SHEETS = [
     # Cell 11 has an opaque sky background; skip until it's redrawn.
     Sheet("weather", "desk_spritesheet_weather.png", 4, 3, skip=(11,)),
     Sheet("ai", "desk_pet_spritesheet_ai_agent.png", 4, 3, matte="black"),
-    Sheet("stress", "desk_pet_spritesheet_stresspng.png", 4, 4, matte="black"),
+    Sheet("stress", "desk_pet_spritesheet_stress.png", 4, 4, matte="black"),
     Sheet("coding", "desk_pet_spritesheet_coding.png", 4, 4, matte="black"),
 ]
 
