@@ -1,2 +1,0 @@
-[console_scripts]
-bench-pet = benchpet.__main__:main

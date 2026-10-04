@@ -10,7 +10,7 @@
 #   hold       [min, max] seconds each pose is held
 #   motion     breathe | bob | dance | walk | none
 #   ambient    true → eligible for random ambient gestures while idle;
-#              coding → picked instead while you're coding
+#              coding / browsing → picked instead while you're coding / browsing
 #   fallback   activity to use while this one has no poses yet
 
 reference_height: 380
@@ -29,6 +29,8 @@ sheets:
   ai: {scale: 0.65}  # upper-body framing, drawn larger
   stress: {scale: 1.1}
   coding: {scale: 1.1}
+  browsing: {scale: 1.1}
+  vape: {scale: 1.0}
 
 activities:
   idle:
@@ -112,7 +114,7 @@ activities:
 
   # --- Music ---
   music_listen:
-    poses: [music/00, music/03, music/05, music/07, music/04]
+    poses: [music/00, music/03, music/05, music/07, music/04, browsing/15]  # browsing/15: headphones
     mode: loop
     hold: [3, 6]
     motion: bob
@@ -180,6 +182,72 @@ activities:
     hold: [1.2, 1.8]
     motion: bob
 
+  # --- Browsing (browsing sheet; a browser focused) ---
+  # Cells (6 per row): 00 laptop facing out, 01 typing, 02 typing smirk, 03 pleased, 04 "!",
+  # 05 "?" chin, 06 coffee, 07 focused typing, 08 lying chin in hand, 09 cheering, 10 "??" head
+  # scratch, 11 lightbulb, 12 stifling a laugh, 13 shocked, 14 hmm, 15 headphones (music only), 16 hands behind
+  # head, 17 yawning, 18 lying typing, 19 lying with globe bubble, 20 lying typing, 21 lying coffee,
+  # 22 lying with hearts, 23 lying typing.
+  browsing:
+    poses: [browsing/01, browsing/19, browsing/02, browsing/18, browsing/07, browsing/20,
+            browsing/00, browsing/23, browsing/03]
+    mode: loop
+    hold: [6, 12]
+    motion: breathe
+  browsing_think:
+    poses: [browsing/05, browsing/14]
+    mode: oneshot
+    hold: [2.5, 4]
+    motion: breathe
+    ambient: browsing
+  browsing_confused:
+    poses: [browsing/10]
+    mode: oneshot
+    hold: [2.5, 3.5]
+    motion: breathe
+    ambient: browsing
+  browsing_idea:
+    poses: [browsing/11]
+    mode: oneshot
+    hold: [2, 3]
+    motion: bob
+    ambient: browsing
+  browsing_wow:
+    poses: [browsing/04, browsing/13]
+    mode: oneshot
+    hold: [1.5, 2.5]
+    motion: none
+    ambient: browsing
+  browsing_laugh:
+    poses: [browsing/12]
+    mode: oneshot
+    hold: [2, 3]
+    motion: bob
+    ambient: browsing
+  browsing_coffee:
+    poses: [browsing/06, browsing/21]
+    mode: oneshot
+    hold: [3, 5]
+    motion: breathe
+    ambient: browsing
+  browsing_relax:
+    poses: [browsing/16, browsing/08]
+    mode: oneshot
+    hold: [4, 7]
+    motion: breathe
+    ambient: browsing
+  browsing_love:
+    poses: [browsing/22]
+    mode: oneshot
+    hold: [2.5, 3.5]
+    motion: breathe
+    ambient: browsing
+  browsing_celebrate:  # done/celebrate while browsing
+    poses: [browsing/09]
+    mode: oneshot
+    hold: [1.8, 2.5]
+    motion: bob
+
   # Long sessions (stress sheet). Cells: 00 head in hands at desk, 01 panicking, 02 flopped back,
   # 03 on fire, 04 armful of coffees, 05 hair-pulling at laptop, 06 face-down low battery,
   # 07 to-do list, 08 hugging knees, 09 papers flying, 10 overwhelmed, 11 "Just one more…" mug,
@@ -191,6 +259,16 @@ activities:
     motion: breathe
   coding_exhausted:
     poses: [stress/11, stress/06, stress/12, stress/02, stress/13, stress/15]
+    mode: loop
+    hold: [6, 12]
+    motion: breathe
+  browsing_tired:
+    poses: [browsing/17, browsing/01, stress/12, browsing/08, stress/13, browsing/18]
+    mode: loop
+    hold: [6, 12]
+    motion: breathe
+  browsing_exhausted:
+    poses: [browsing/17, stress/06, stress/12, stress/02, stress/13, stress/15]
     mode: loop
     hold: [6, 12]
     motion: breathe
@@ -225,8 +303,12 @@ activities:
 
   # --- Away from the machine (idle phase) ---
   away_short:
+    # Vape cells: 00 holding, 01 drawing, 02 exhaling cloud, 05 thinking, 06 wink + thumbs-up,
+    # 07 leaning, 08 reclining exhale. (03 and 04 keep dark smoke fringes; left out until
+    # the sheet comes with real transparency.)
     poses: [coffee/00, coffee/01, coffee/02, coffee/03, coffee/04, coffee/05, coffee/06, coffee/07,
-            coffee/08, coffee/09, coffee/10, coffee/11, coffee/13, coffee/14, coffee/15]
+            coffee/08, coffee/09, coffee/10, coffee/11, coffee/13, coffee/14, coffee/15,
+            vape/00, vape/01, vape/02, vape/05, vape/06, vape/07, vape/08]
     mode: loop
     hold: [6, 12]
     motion: breathe
@@ -306,7 +388,7 @@ activities:
     motion: breathe
   pomodoro_break:
     poses: [coffee/00, coffee/01, coffee/02, coffee/03, coffee/06, coffee/07, coffee/09,
-            coffee/10, coffee/11, coffee/13]
+            coffee/10, coffee/11, coffee/13, vape/00, vape/01, vape/02, vape/05, vape/07]
     mode: loop
     hold: [5, 9]
     motion: breathe
