@@ -1,6 +1,6 @@
 from benchpet.config import DEFAULTS
 from benchpet.events import AwayChanged, ComputerActivity, FocusChanged, InputChanged
-from benchpet.sources.activity import ActivitySource, is_coding_app
+from benchpet.sources.activity import ActivitySource, is_browser_app, is_coding_app
 
 from tests.test_pomodoro import Bus
 
@@ -24,10 +24,18 @@ def test_is_coding_app():
         assert not is_coding_app(app, apps), app
 
 
+def test_is_browser_app():
+    apps = DEFAULTS["activity"]["browser_apps"]
+    for app in ("firefox", "org.mozilla.firefox", "Chromium-browser", "google-chrome", "brave-browser"):
+        assert is_browser_app(app, apps), app
+    for app in ("code", "org.kde.konsole", "slack", ""):
+        assert not is_browser_app(app, apps), app
+
+
 def test_coding_needs_input_and_an_editor():
     src, bus, t = make()
     bus.publish(InputChanged(True))
-    bus.publish(FocusChanged("firefox"))
+    bus.publish(FocusChanged("org.kde.dolphin"))
     assert last(bus).mode == "idle"
     bus.publish(FocusChanged("org.kde.konsole"))
     assert last(bus).mode == "coding"
@@ -53,6 +61,17 @@ def test_brief_switch_away_keeps_coding():
     assert last(bus).mode == "coding"
     t[0] = 146
     src.tick()
+    assert last(bus).mode == "browsing"  # the lookup turned into browsing
+    bus.publish(FocusChanged("org.kde.dolphin"))
+    assert last(bus).mode == "idle"
+
+
+def test_browsing_needs_input_and_a_browser():
+    src, bus, t = make()
+    bus.publish(InputChanged(True))
+    bus.publish(FocusChanged("firefox"))
+    assert last(bus).mode == "browsing"
+    bus.publish(InputChanged(False))
     assert last(bus).mode == "idle"
 
 

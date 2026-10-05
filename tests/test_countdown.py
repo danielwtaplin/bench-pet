@@ -59,7 +59,11 @@ def test_source_items_and_reached_events():
     now[0] = datetime(2026, 10, 2, 17, 0, 5)
     source.update()
     assert CountdownReached("Weekend") in source.bus.events
-    assert source.bus.events[-1].items == (("Weekend", None),)
+    assert source.bus.events[-1].items == (("Back to work", 2 * 86400 + 16 * 3600 - 5),)
+
+    now[0] = datetime(2026, 10, 5, 8, 6)
+    source.update()
+    assert source.bus.events[-1].items == (("Back to work", 54 * 60),)
 
 
 def test_starting_during_weekend_doesnt_celebrate():

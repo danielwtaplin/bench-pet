@@ -3,11 +3,11 @@ from datetime import date, datetime, timedelta
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QRect  # noqa: E402
+from PySide6.QtCore import QRect, QSize  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from benchpet.calendar_view import (  # noqa: E402
-    CalendarView, agenda, clock, day_rows, lay_out_day, month_days, on_day, until)
+    CalendarView, agenda, beside, clock, day_rows, lay_out_day, month_days, on_day, until)
 from benchpet.sources.calendar import CalEvent  # noqa: E402
 
 app = QApplication.instance() or QApplication([])
@@ -84,3 +84,16 @@ def test_view_states_and_placement():
     assert view.x() + view.width() <= 1800  # no room on the right: goes left
     view.place_beside(QRect(1000, 600, 120, 240), screen, side="left")
     assert view.x() + view.width() == 990
+
+
+def test_a_second_card_goes_the_other_side_or_on_top():
+    screen = QRect(0, 0, 1920, 1080)
+    pose, size = QRect(1000, 600, 120, 240), QSize(280, 200)
+    calendar = QRect(beside(pose, size, screen), size)
+    assert calendar.x() == 1129
+    log = beside(pose, QSize(420, 150), screen, avoid=calendar)
+    assert log.x() + 420 == 990  # left of the pet
+    cramped = QRect(0, 0, 1540, 1080)  # no room for the log on the right; calendar went left
+    calendar = QRect(beside(pose, size, cramped, "left"), size)
+    log = beside(pose, QSize(420, 150), QRect(400, 0, 1140, 1080), avoid=calendar)
+    assert log.y() + 150 + 10 == calendar.y()  # neither side free: stacked on top

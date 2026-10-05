@@ -4,14 +4,15 @@ from benchpet.sources.mpris import parse_props
 def test_parse_props_full():
     props = {
         "PlaybackStatus": "Playing",
-        "Metadata": {"xesam:title": "Song", "xesam:artist": ["A", "B"]},
+        "Metadata": {"xesam:title": "Song", "xesam:artist": ["A", "B"],
+                     "xesam:album": "LP", "mpris:artUrl": "file:///tmp/cover.png"},
     }
-    assert parse_props(props) == ("Playing", "Song", "A, B")
+    assert parse_props(props) == ("Playing", "Song", "A, B", "LP", "file:///tmp/cover.png")
 
 
 def test_parse_props_partial_update():
-    assert parse_props({"PlaybackStatus": "Paused"}) == ("Paused", None, None)
-    assert parse_props({"Metadata": {}}) == (None, "", "")
+    assert parse_props({"PlaybackStatus": "Paused"}) == ("Paused", None, None, None, None)
+    assert parse_props({"Metadata": {}}) == (None, "", "", "", "")
 
 
 def test_media_command_targets_the_shown_player():

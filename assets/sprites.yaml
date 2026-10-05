@@ -19,6 +19,8 @@ sheets:
   generic_a: {scale: 1.05}
   generic_b: {scale: 1.0}
   music: {scale: 0.93}
+  music_metal: {scale: 0.93}
+  music_hiphop: {scale: 0.93}
   laptop: {scale: 0.95}
   coffee:
     scale: 1.0
@@ -31,6 +33,8 @@ sheets:
   coding: {scale: 1.1}
   browsing: {scale: 1.1}
   vape: {scale: 1.0}
+  logging: {scale: 0.91}
+  logging_music: {scale: 0.91}
 
 activities:
   idle:
@@ -120,6 +124,27 @@ activities:
     motion: bob
   music_dance:
     poses: [music/01, music/02, music/06, music/08]
+    mode: loop
+    hold: [0.8, 1.6]
+    motion: dance
+  # Genre variants (picked from the track's MusicBrainz genre); same cell layout as the music sheet.
+  music_metal_listen:
+    poses: [music_metal/00, music_metal/03, music_metal/05, music_metal/07, music_metal/04]
+    mode: loop
+    hold: [3, 6]
+    motion: bob
+  music_metal_dance:
+    poses: [music_metal/01, music_metal/02, music_metal/06, music_metal/08]
+    mode: loop
+    hold: [0.8, 1.6]
+    motion: dance
+  music_hiphop_listen:
+    poses: [music_hiphop/00, music_hiphop/03, music_hiphop/05, music_hiphop/07, music_hiphop/04]
+    mode: loop
+    hold: [3, 6]
+    motion: bob
+  music_hiphop_dance:
+    poses: [music_hiphop/01, music_hiphop/02, music_hiphop/06, music_hiphop/08]
     mode: loop
     hold: [0.8, 1.6]
     motion: dance
@@ -278,6 +303,27 @@ activities:
     mode: oneshot
     hold: [2, 3]
     motion: none
+  usage_stressed:  # default state while a plan window stays over usage.react_at_percent
+    poses: [stress/00, stress/13, stress/06, stress/10, stress/14, stress/08]
+    mode: loop
+    hold: [6, 12]
+    motion: breathe
+
+  # --- Log tail (new lines arriving in the tailed file; logging_music while music plays) ---
+  # Cells: 00 pen to chin, 01 writing eyes closed, 02 writing glancing up, 03 writing pleased,
+  # 04 sitting writing, 05 writing smirk, 06 pen raised, 07 writing, 08 reading the notepad.
+  logging:
+    poses: [logging/01, logging/03, logging/00, logging/07, logging/04, logging/02, logging/05,
+            logging/08, logging/06]
+    mode: loop
+    hold: [3, 6]
+    motion: breathe
+  logging_music:  # same cells, with headphones
+    poses: [logging_music/01, logging_music/03, logging_music/00, logging_music/07, logging_music/04,
+            logging_music/02, logging_music/05, logging_music/08, logging_music/06]
+    mode: loop
+    hold: [3, 6]
+    motion: bob
 
   # --- Tasks (driven by `bench-pet working|done|failed`) ---
   working:

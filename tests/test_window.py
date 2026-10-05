@@ -5,6 +5,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from benchpet.config import Config  # noqa: E402
+from benchpet.events import LogTailUpdated  # noqa: E402
 from benchpet.sprites import load_library  # noqa: E402
 from benchpet.window import PetWindow  # noqa: E402
 
@@ -63,15 +64,19 @@ def test_calendar_follows_the_info_panel_and_the_button(tmp_path):
     window.leaveEvent(None)
     window._leave_timer.timeout.emit()
     assert not window.calendar.isVisible()
-    window.config["calendar_view"].update(with_info_panel=False, button=True)
+    window.config["calendar_view"]["button"] = True
     window.apply_calendar_settings()
-    assert window.calendar_button.isVisible() and not window.calendar.isVisible()
+    assert window.calendar_button.isVisible() and window.calendar_button.active
+    window.calendar_button.clicked.emit()  # turned off: never shown, even with the info panel
+    assert not window.config["calendar_view"]["with_info_panel"]
     window.enterEvent(None)
-    assert not window.calendar.isVisible()  # no longer tied to the info panel
-    window.calendar_button.clicked.emit()
-    assert window.calendar.isVisible()
-    window.calendar_button.clicked.emit()
     assert not window.calendar.isVisible()
+    window.calendar_button.clicked.emit()  # back on: shows with the panel, not pinned
+    assert window.calendar.isVisible()
+    window.leaveEvent(None)
+    window._leave_timer.timeout.emit()
+    assert not window.calendar.isVisible()
+    assert Config(tmp_path / "config.yaml")["calendar_view"]["with_info_panel"]  # remembered
 
 
 def test_moving_onto_the_calendar_keeps_it_open(tmp_path):
@@ -93,3 +98,28 @@ def test_no_calendar_card_on_hover_without_feeds(tmp_path):
     window.show()
     window.enterEvent(None)
     assert not window.calendar.isVisible()
+
+
+def test_log_console_shows_with_the_info_panel_beside_the_calendar(tmp_path):
+    window, _ = make(tmp_path)
+    window.show()
+    window.calendar.set_events((), has_feeds=True)
+    window.enterEvent(None)
+    assert not window.log_view.isVisible()  # no file set
+    window.set_log_tail(LogTailUpdated("/tmp/app.log", ("one", "ERROR two"), 1))
+    assert window.log_view.isVisible() and window.calendar.isVisible()
+    assert not window.log_view.geometry().intersects(window.calendar.geometry())
+    window.toggle_log()  # off: never shown
+    assert not window.log_view.isVisible()
+    assert not Config(tmp_path / "config.yaml")["log_tail"]["with_info_panel"]
+    window.toggle_log()
+    window.leaveEvent(None)
+    window.log_view.hover_changed.emit(True)  # moved onto the console
+    window._leave_timer.timeout.emit()
+    assert window.log_view.isVisible()
+    window.log_view.hover_changed.emit(False)
+    window._leave_timer.timeout.emit()
+    assert not window.log_view.isVisible()
+    window.enterEvent(None)
+    window.set_log_tail(LogTailUpdated("", (), 0))  # path cleared
+    assert not window.log_view.isVisible()
