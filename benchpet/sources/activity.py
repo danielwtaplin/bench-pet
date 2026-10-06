@@ -1,9 +1,10 @@
-"""Whether you're coding, and for how long since your last break.
+"""Whether you're coding or browsing, and for how long since your last break.
 
 Combines input activity (IdleSource), the focused window (FocusTracker) and
 away periods into a work session. Coding means recent input with an editor or
 terminal focused; a quick switch to another window (looking something up)
-doesn't end it. A session runs until a real break, i.e. the away threshold.
+doesn't end it. Browsing means a browser is focused once that grace has run out.
+A session runs until a real break, i.e. the away threshold.
 """
 
 from __future__ import annotations
@@ -23,6 +24,9 @@ def is_coding_app(app: str, coding_apps: list[str]) -> bool:
     return bool(app) and any(name.lower() in app for name in coding_apps)
 
 
+is_browser_app = is_coding_app  # same matching, against `browser_apps`
+
+
 class ActivitySource(Source):
     name = "activity"
 
@@ -30,6 +34,7 @@ class ActivitySource(Source):
         super().__init__(bus)
         self.now = now
         self.coding_apps = config["coding_apps"]
+        self.browser_apps = config["browser_apps"]
         self.focus_grace = config["focus_grace_seconds"]
         self.tired_after = config["tired_minutes"] * 60
         self.exhausted_after = config["exhausted_minutes"] * 60
@@ -73,7 +78,9 @@ class ActivitySource(Source):
         if self._coding_focused():
             return "coding"
         recent = self._coding_focus_at is not None and self.now() - self._coding_focus_at < self.focus_grace
-        return "coding" if recent else "idle"
+        if recent:
+            return "coding"
+        return "browsing" if is_browser_app(self.app, self.browser_apps) else "idle"
 
     def session_seconds(self) -> float:
         return 0.0 if self._session_start is None else self.now() - self._session_start

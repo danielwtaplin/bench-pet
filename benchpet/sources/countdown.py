@@ -62,10 +62,10 @@ class CountdownSource(Source):
         self._timer.stop()
 
     def items(self, now: datetime) -> list[tuple[str, float | None]]:
-        """(name, seconds remaining) for each countdown; None means it's happening now."""
+        """(name, seconds remaining) for each countdown; over the weekend, time until the week starts."""
         items: list[tuple[str, float | None]] = []
         if in_weekend(now, self.week_end, self.week_start):
-            items.append((self.label, None))
+            items.append(("Back to work", (next_weekly(now, *self.week_start) - now).total_seconds()))
         else:
             items.append((self.label, (next_weekly(now, *self.week_end) - now).total_seconds()))
         for name, at in self.events:

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QRectF, Qt, Signal
+from PySide6.QtCore import QPoint, QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath
-from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+
+from benchpet.art import rounded_tile
 
 STYLE = """
 QLabel { color: #f2f2f5; font-size: 12px; }
@@ -13,6 +15,7 @@ QLabel[role="muted"] { color: #b4b4c0; }
 """
 
 MAX_WIDTH = 260
+ART_SIZE = 40  # album cover tile beside the music section's text
 BAR_COLOURS = ((0.9, QColor("#ff6b6b")), (0.7, QColor("#f5c26b")), (0.0, QColor("#7bd88f")))
 
 
@@ -61,7 +64,8 @@ class Bubble(QWidget):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(12, 9, 12, 9)
         self._layout.setSpacing(2)
-        # section → list of (text, role), or (text, "bar", fraction) for a labelled progress bar
+        # section → list of (text, role), or (text, "bar", fraction) for a labelled progress bar;
+        # a leading ("", "art", QPixmap) line shows that image as a tile beside the rest
         self._sections: dict[str, list[tuple]] = {}
         self.hidden: set[str] = set()  # sections the user turned off
 
@@ -98,28 +102,58 @@ class Bubble(QWidget):
         for i, lines in enumerate(self._sections[n] for n in self._visible()):
             if i:
                 self._layout.addSpacing(6)
-            for text, role, *extra in lines:
-                label = QLabel(text)
-                label.setProperty("role", "muted" if role == "bar" else role)
-                self._layout.addWidget(label)
-                label.ensurePolished()  # pick up the bubble stylesheet's font before measuring
-                # Word-wrapped labels size to a narrow default, so size to the text instead.
-                width = label.fontMetrics().horizontalAdvance(text) + 4
-                if role == "bar":
-                    width = max(width, 200)  # bars line up, whatever their labels say
-                    self._layout.addWidget(Bar(extra[0] if extra else 0.0))
-                    self._layout.addSpacing(3)
-                label.setFixedWidth(min(width, MAX_WIDTH))
-                label.setWordWrap(True)
+            if lines[0][1] == "art":
+                self._add_art_row(lines[0][2], lines[1:])
+            else:
+                self._add_lines(self._layout, lines, MAX_WIDTH)
         self.adjustSize()
 
-    def show_above(self, anchor: QPoint) -> None:
-        """Show with the bubble's bottom-centre at `anchor` (global coords)."""
+    def _add_art_row(self, pixmap, lines: list[tuple]) -> None:
+        row = QWidget()
+        hbox = QHBoxLayout(row)
+        hbox.setContentsMargins(0, 0, 0, 0)
+        hbox.setSpacing(8)
+        art = QLabel()
+        art.setPixmap(rounded_tile(pixmap, ART_SIZE))
+        art.setFixedSize(ART_SIZE, ART_SIZE)
+        hbox.addWidget(art, 0, Qt.AlignTop)
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        text.addStretch()
+        self._add_lines(text, lines, MAX_WIDTH - ART_SIZE - 8)
+        text.addStretch()
+        hbox.addLayout(text)
+        self._layout.addWidget(row)
+
+    @staticmethod
+    def _add_lines(layout, lines: list[tuple], max_width: int) -> None:
+        for text, role, *extra in lines:
+            label = QLabel(text)
+            label.setProperty("role", "muted" if role == "bar" else role)
+            layout.addWidget(label)
+            label.ensurePolished()  # pick up the bubble stylesheet's font before measuring
+            # Word-wrapped labels size to a narrow default, so size to the text instead.
+            width = label.fontMetrics().horizontalAdvance(text) + 4
+            if role == "bar":
+                width = max(width, 200)  # bars line up, whatever their labels say
+                layout.addWidget(Bar(extra[0] if extra else 0.0))
+                layout.addSpacing(3)
+            label.setFixedWidth(min(width, max_width))
+            label.setWordWrap(True)
+
+    def show_near(self, above: QPoint, below_y: int, screen: QRect) -> None:
+        """Show with the bubble's bottom-centre at `above` (global coords), or with its top
+        at `below_y` when there's no room above. Never pushed back over the pet by the window
+        manager, where it would catch the cursor and block dragging."""
         if not self.has_content():
             self.hide()
             return
         self.adjustSize()
-        self.move(anchor.x() - self.width() // 2, anchor.y() - self.height())
+        x = max(screen.left(), min(screen.right() - self.width(), above.x() - self.width() // 2))
+        y = above.y() - self.height()
+        if y < screen.top():
+            y = below_y
+        self.move(x, y)
         self.show()
 
     def enterEvent(self, _event) -> None:

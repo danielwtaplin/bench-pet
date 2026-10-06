@@ -17,7 +17,7 @@ DEFAULTS = {
     "walk_chance": 0.3,  # fraction of ambient picks that are a little walk instead
     "music_dance_interval": [15, 40],  # seconds between listen ↔ dance switches
     "sources": {"mpris": True, "idle": True, "notifications": True, "countdown": True, "calendar": True, "weather": True, "pomodoro": True,
-                "activity": True, "usage": True},
+                "activity": True, "usage": True, "log_tail": True},
     "countdown": {
         "label": "Weekend",
         "week_end": {"day": "friday", "time": "17:00"},
@@ -38,6 +38,10 @@ DEFAULTS = {
         "coding_apps": ["konsole", "yakuake", "kitty", "alacritty", "wezterm", "foot", "ghostty",
                         "gnome-terminal", "ptyxis", "code", "codium", "cursor", "jetbrains", "zed",
                         "kate", "emacs", "neovide", "nvim"],
+        # Same matching; a focused browser shows the browsing poses (after focus_grace if you
+        # came from an editor, so a quick lookup still counts as coding).
+        "browser_apps": ["firefox", "librewolf", "floorp", "zen", "chromium", "chrome", "brave",
+                         "vivaldi", "opera", "microsoft-edge", "falkon", "epiphany", "qutebrowser"],
     },
     "calendar": {
         # Easiest to edit in Settings → Calendar. ICS feeds: Google "Secret address in iCal
@@ -48,11 +52,20 @@ DEFAULTS = {
         "remind_minutes": 10,  # pet reacts and the calendar pops up this long before an event
     },
     "calendar_view": {  # the white card beside the pet
-        "with_info_panel": True,  # opens and closes with the info panel (hover / click)
-        "button": False,  # a calendar button below the pet that opens and closes it on its own
+        "with_info_panel": True,  # shows with the info panel (hover / click); false: never shown
+        "pinned": False,  # stays up all the time instead of only while the info panel is open
+        "button": False,  # a calendar button below the pet that turns with_info_panel on and off
         "layout": "agenda",  # agenda | timeline | month
         "agenda_days": 4,  # days listed in the agenda, from today
         "side": "auto",  # auto | left | right of the pet
+    },
+    "log_tail": {  # the dark console card beside the pet; easiest to edit in Settings → Log tail
+        "path": "",  # file to follow like `tail -F`, e.g. ~/app/logs/dev.log; empty → off
+        "lines": 12,  # lines shown
+        "with_info_panel": True,  # shows with the info panel (hover / click); false: never shown
+        "pinned": False,  # stays up all the time instead of only while the info panel is open
+        "side": "auto",  # auto (opposite the calendar when there's room) | left | right of the pet
+        "active_seconds": 30,  # pet takes notes this long after new lines arrive; 0 → never
     },
     "weather": {
         "location": None,  # e.g. "Wellington"; or set latitude/longitude instead
@@ -60,6 +73,11 @@ DEFAULTS = {
         "longitude": None,
         "refresh_minutes": 30,
         "ambient_chance": 0.25,  # share of random gestures that reflect the weather
+    },
+    "music": {
+        # Look up the playing track's genre on MusicBrainz (sends title/artist) to pick
+        # metal / hip hop animations; false keeps the generic music ones.
+        "genre_lookup": True,
     },
     "pomodoro": {
         "focus_minutes": 25,
@@ -71,7 +89,7 @@ DEFAULTS = {
     "bubble": {"hidden": [], "shown": []},
     "usage": {
         "claude_logs": "~/.claude/projects",  # session transcripts, for today's tokens
-        "react_at_percent": 90,  # pet reacts when a plan window passes this; null to turn off
+        "react_at_percent": 90,  # pet reacts, then stays stressed, while a plan window is over this; null to turn off
     },
     "agent": {
         "only_when_unfocused": True,  # stay quiet if the agent's terminal is in front

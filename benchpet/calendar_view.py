@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Callable
 
-from PySide6.QtCore import QPoint, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
@@ -150,6 +150,34 @@ def month_days(year: int, month: int) -> list[date | None]:
     cells = [None] * pycal.monthrange(year, month)[0]
     cells += [date(year, month, d) for d in range(1, pycal.monthrange(year, month)[1] + 1)]
     return cells + [None] * (-len(cells) % 7)
+
+
+def beside(pose: QRect, size: QSize, screen: QRect, side: str = "auto", avoid: QRect | None = None) -> QPoint:
+    """Top-left for a card next to the pet's pose (global coords), bottom-aligned with its feet.
+
+    `side` is auto | left | right; auto takes the right if there's room. A card already
+    beside the pet (`avoid`) pushes this one to the other side, or on top of it when
+    that side is off screen. Always kept on screen.
+    """
+    gap = 10
+    right_x = pose.right() + gap
+    left_x = pose.left() - gap - size.width()
+    fits_right = right_x + size.width() <= screen.right()
+    fits_left = left_x >= screen.left()
+    if side == "left" or (side == "auto" and not fits_right):
+        x = left_x if fits_left or side == "left" else right_x
+    else:
+        x = right_x
+    y = pose.bottom() - size.height()
+    if avoid is not None and QRect(QPoint(x, y), size).intersects(avoid):
+        other = right_x if x == left_x else left_x
+        if side == "auto" and (fits_right if other == right_x else fits_left):
+            x = other
+        else:
+            y = avoid.top() - gap - size.height()
+    x = max(screen.left(), min(screen.right() - size.width(), x))
+    y = max(screen.top(), min(screen.bottom() - size.height(), y))
+    return QPoint(x, y)
 
 
 # --- widgets ---------------------------------------------------------------
@@ -451,20 +479,8 @@ class CalendarView(QWidget):
         self.rebuild()
 
     def place_beside(self, pose: QRect, screen: QRect, side: str = "auto") -> None:
-        """Next to the pet's pose (global coords), bottom-aligned with its feet, kept on screen."""
         self.adjustSize()
-        gap = 10
-        right_x = pose.right() + gap
-        left_x = pose.left() - gap - self.width()
-        fits_right = right_x + self.width() <= screen.right()
-        if side == "left" or (side == "auto" and not fits_right):
-            x = left_x if left_x >= screen.left() or side == "left" else right_x
-        else:
-            x = right_x
-        y = pose.bottom() - self.height()
-        x = max(screen.left(), min(screen.right() - self.width(), x))
-        y = max(screen.top(), min(screen.bottom() - self.height(), y))
-        self.move(QPoint(x, y))
+        self.move(beside(pose, self.size(), screen, side))
 
     def enterEvent(self, _event) -> None:
         self.hover_changed.emit(True)

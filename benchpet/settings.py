@@ -8,18 +8,20 @@ config sections that changed, so the app can apply them without a restart.
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
-    QGroupBox, QHBoxLayout, QHeaderView, QLabel, QListWidget, QPushButton, QSpinBox, QStackedWidget,
+    QAbstractItemView, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+    QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QPushButton, QSpinBox, QStackedWidget,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from benchpet.bubble import OPT_IN, SECTION_LABELS
 from benchpet.calendar_view import LAYOUTS
 from benchpet.sources.calendar import FEED_COLOURS
+from benchpet.sources.logtail import expand
 
 SIZES = {"Small": 140, "Medium": 180, "Large": 240}
 SIDES = {"auto": "Wherever there's room", "right": "Right of the pet", "left": "Left of the pet"}
@@ -42,6 +44,15 @@ def hint(text: str) -> QLabel:
     lab.setTextFormat(Qt.RichText)
     lab.setStyleSheet("color: palette(placeholder-text);")
     return lab
+
+
+def pin_box(with_panel: QCheckBox, checked: bool) -> QCheckBox:
+    """A "keep it up" tick for a card beside the pet; only means something while the card is on."""
+    box = QCheckBox("Pin it: keep it up all the time, not just while the info panel is open")
+    box.setChecked(checked)
+    box.setEnabled(with_panel.isChecked())
+    with_panel.toggled.connect(box.setEnabled)
+    return box
 
 
 class GeneralPage(Page):
@@ -104,10 +115,12 @@ class CalendarPage(Page):
 
         card = QGroupBox("Calendar card")
         form = QFormLayout(card)
-        self.with_panel = QCheckBox("Open it with the info panel (hover or click the pet)")
+        self.with_panel = QCheckBox("Show it with the info panel (hover or click the pet)")
         self.with_panel.setChecked(view["with_info_panel"])
         form.addRow(self.with_panel)
-        self.button = QCheckBox("Show a calendar button below the pet to open and close it")
+        self.pinned = pin_box(self.with_panel, view["pinned"])
+        form.addRow(self.pinned)
+        self.button = QCheckBox("Show a calendar button below the pet to turn it on and off")
         self.button.setChecked(view["button"])
         form.addRow(self.button)
         self.layout_box = QComboBox()
@@ -202,6 +215,9 @@ class CalendarPage(Page):
             self.table.removeRow(row)
 
     def feeds(self) -> list[dict]:
+        # A cell still being edited (e.g. an address pasted, then OK) only reaches its item
+        # once the editor commits, which moving the current cell away does.
+        self.table.setCurrentIndex(QModelIndex())
         out = []
         for row in range(self.table.rowCount()):
             url = (self.table.item(row, 1).text() if self.table.item(row, 1) else "").strip()
@@ -215,6 +231,7 @@ class CalendarPage(Page):
     def save(self, config):
         view, cal = config["calendar_view"], config["calendar"]
         view["with_info_panel"] = self.with_panel.isChecked()
+        view["pinned"] = self.pinned.isChecked()
         view["button"] = self.button.isChecked()
         view["layout"] = self.layout_box.currentData()
         view["agenda_days"] = self.days.value()
@@ -224,7 +241,96 @@ class CalendarPage(Page):
         cal["refresh_minutes"] = self.refresh.value()
 
 
-PAGES = [GeneralPage, InfoPanelPage, CalendarPage]
+class MusicPage(Page):
+    title = "Music"
+    keys = ("music",)
+
+    def build(self, config):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        self.genre_outfits = QCheckBox("Dress for the genre (metal, hip hop)")
+        self.genre_outfits.setChecked(config["music"]["genre_lookup"])
+        v.addWidget(self.genre_outfits)
+        v.addWidget(hint("Looks up the playing track's genre on MusicBrainz, which sends it the title "
+                         "and artist. Off: the pet always wears its usual outfit for music."))
+        v.addStretch()
+        return w
+
+    def save(self, config):
+        config["music"]["genre_lookup"] = self.genre_outfits.isChecked()
+
+
+class LogTailPage(Page):
+    title = "Log tail"
+    keys = ("log_tail",)
+
+    def build(self, config):
+        conf = config["log_tail"]
+        w = QWidget()
+        v = QVBoxLayout(w)
+
+        source = QGroupBox("File")
+        fv = QVBoxLayout(source)
+        fv.addWidget(hint("Followed like <code>tail -F</code>: new lines show up as they're written, "
+                          "and it keeps going if the file is rotated, truncated or not there yet. "
+                          "Leave empty to turn it off."))
+        row = QHBoxLayout()
+        self.path = QLineEdit(conf["path"])
+        self.path.setPlaceholderText("e.g. ~/projects/app/logs/dev.log")
+        self.path.setClearButtonEnabled(True)
+        browse = QPushButton("Browse…")
+        browse.clicked.connect(self._browse)
+        row.addWidget(self.path, 1)
+        row.addWidget(browse)
+        fv.addLayout(row)
+        v.addWidget(source)
+
+        card = QGroupBox("Log console")
+        form = QFormLayout(card)
+        self.with_panel = QCheckBox("Show it with the info panel (hover or click the pet)")
+        self.with_panel.setChecked(conf["with_info_panel"])
+        form.addRow(self.with_panel)
+        self.pinned = pin_box(self.with_panel, conf["pinned"])
+        form.addRow(self.pinned)
+        self.lines = QSpinBox(minimum=3, maximum=40, suffix=" lines")
+        self.lines.setValue(conf["lines"])
+        form.addRow("Show the last", self.lines)
+        self.side = QComboBox()
+        for key, label in {**SIDES, "auto": "Wherever there's room (away from the calendar)"}.items():
+            self.side.addItem(label, key)
+        self.side.setCurrentIndex(max(0, self.side.findData(conf["side"])))
+        form.addRow("Position", self.side)
+        v.addWidget(card)
+
+        pet = QGroupBox("Pet")
+        pf = QFormLayout(pet)
+        self.active = QSpinBox(minimum=0, maximum=600, suffix=" s")
+        self.active.setSpecialValueText("Never")
+        self.active.setValue(conf["active_seconds"])
+        pf.addRow("Takes notes after new lines for", self.active)
+        pf.addRow(hint("Headphones on while music is playing."))
+        v.addWidget(pet)
+        v.addStretch()
+        return w
+
+    def _browse(self) -> None:
+        start = str(expand(self.path.text())) if self.path.text().strip() else str(Path.home())
+        path, _ = QFileDialog.getOpenFileName(self.path, "File to follow", start,
+                                              "Logs (*.log *.txt *.out *.err);;All files (*)")
+        if path:
+            self.path.setText(path)
+
+    def save(self, config):
+        conf = config["log_tail"]
+        conf["path"] = self.path.text().strip()
+        conf["with_info_panel"] = self.with_panel.isChecked()
+        conf["pinned"] = self.pinned.isChecked()
+        conf["lines"] = self.lines.value()
+        conf["side"] = self.side.currentData()
+        conf["active_seconds"] = self.active.value()
+
+
+PAGES = [GeneralPage, InfoPanelPage, MusicPage, CalendarPage, LogTailPage]
 
 
 class SettingsDialog(QDialog):

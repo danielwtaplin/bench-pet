@@ -13,10 +13,19 @@ class MusicChanged:
     status: str  # Playing | Paused | Stopped
     title: str = ""
     artist: str = ""
+    album: str = ""
+    art_url: str = ""  # mpris:artUrl, file:// or http(s)://; empty when the player has none
 
     @property
     def playing(self) -> bool:
         return self.status == "Playing"
+
+
+@dataclass(frozen=True)
+class MusicGenre:
+    title: str  # the track this is for, matched against the latest MusicChanged
+    artist: str
+    genres: tuple[str, ...]  # most-voted first; empty when MusicBrainz has none
 
 
 class EventBus(QObject):
@@ -115,7 +124,7 @@ class FocusChanged:
 
 @dataclass(frozen=True)
 class ComputerActivity:
-    mode: str  # idle | coding
+    mode: str  # idle | coding | browsing
     tier: str  # fresh | tired | exhausted (how long since the last break)
     session_minutes: float
 
@@ -130,3 +139,11 @@ class PlanUsage:
 @dataclass(frozen=True)
 class TokenUsage:
     totals: object  # usage.DayTotals for today
+
+
+@dataclass(frozen=True)
+class LogTailUpdated:
+    path: str  # the followed file; "" when none is set
+    lines: tuple[str, ...]  # its last log_tail.lines lines
+    appended: int  # new lines since the last update (0 for what was already in the file)
+    error: str = ""  # e.g. "Waiting for app.log…" while it doesn't exist

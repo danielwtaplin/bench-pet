@@ -19,16 +19,18 @@ PROPS_IFACE = "org.freedesktop.DBus.Properties"
 METHODS = {"play_pause": "PlayPause", "next": "Next", "previous": "Previous"}
 
 
-def parse_props(props: dict) -> tuple[str | None, str | None, str | None]:
-    """(status, title, artist) from a Player property dict; None for absent keys."""
+def parse_props(props: dict) -> tuple[str | None, ...]:
+    """(status, title, artist, album, art_url) from a Player property dict; None for absent keys."""
     status = props.get("PlaybackStatus")
-    title = artist = None
+    title = artist = album = art_url = None
     metadata = props.get("Metadata")
     if metadata is not None:
         title = metadata.get("xesam:title", "")
         artists = metadata.get("xesam:artist", [])
         artist = ", ".join(artists) if isinstance(artists, list) else str(artists)
-    return status, title, artist
+        album = metadata.get("xesam:album", "")
+        art_url = metadata.get("mpris:artUrl", "")
+    return status, title, artist, album, art_url
 
 
 class MprisSource(Source):
@@ -38,7 +40,7 @@ class MprisSource(Source):
         super().__init__(bus)
         self._dbus: Gio.DBusConnection | None = None
         self._subs: list[int] = []
-        # bus name → {"status", "title", "artist"}; unique name → well-known name
+        # bus name → {"status", "title", "artist", "album", "art_url"}; unique name → well-known name
         self._players: dict[str, dict[str, str]] = {}
         self._owners: dict[str, str] = {}
         self._active: str | None = None
@@ -102,7 +104,7 @@ class MprisSource(Source):
     # --- player tracking -------------------------------------------------
 
     def _add_player(self, name: str) -> None:
-        self._players.setdefault(name, {"status": "Stopped", "title": "", "artist": ""})
+        self._players.setdefault(name, {"status": "Stopped", "title": "", "artist": "", "album": "", "art_url": ""})
         self._dbus.call(
             "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
             "GetNameOwner", GLib.Variant("(s)", (name,)), None, Gio.DBusCallFlags.NONE,
@@ -134,7 +136,7 @@ class MprisSource(Source):
     def _update(self, name: str, props: dict) -> None:
         if name not in self._players:
             return
-        status, title, artist = parse_props(props)
+        status, title, artist, album, art_url = parse_props(props)
         player = self._players[name]
         if status is not None:
             player["status"] = status
@@ -143,6 +145,8 @@ class MprisSource(Source):
         if title is not None:
             player["title"] = title
             player["artist"] = artist or ""
+            player["album"] = album or ""
+            player["art_url"] = art_url or ""
         self._publish()
 
     def _publish(self) -> None:
@@ -159,7 +163,7 @@ class MprisSource(Source):
             event = MusicChanged(player="", status="Stopped")
         else:
             p = self._players[name]
-            event = MusicChanged(name, p["status"], p["title"], p["artist"])
+            event = MusicChanged(name, p["status"], p["title"], p["artist"], p["album"], p["art_url"])
         if event != self._last_published:
             self._last_published = event
             self.bus.publish(event)

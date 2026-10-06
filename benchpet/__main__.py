@@ -18,26 +18,30 @@ from collections import deque
 os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 
 from PySide6.QtCore import QTimer  # noqa: E402
+from PySide6.QtGui import QIcon  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from benchpet.config import Config  # noqa: E402
 from benchpet import control  # noqa: E402
 from benchpet.sources.weather import ICONS  # noqa: E402
 from benchpet.events import (  # noqa: E402
-    CalendarReminder, CalendarUpdated, ComputerActivity, CountdownsUpdated, EventBus, FocusChanged, MusicChanged,
-    PlanUsage, TokenUsage,
+    CalendarReminder, CalendarUpdated, ComputerActivity, CountdownsUpdated, EventBus, FocusChanged, LogTailUpdated,
+    MusicChanged, MusicGenre, PlanUsage, TokenUsage,
     AgentResponse, MediaCommand, NotificationReceived, PomodoroCommand, PomodoroPhaseEnded, PomodoroUpdated, TaskEvent,
     WeatherUpdated)
-from benchpet.sprites import load_library  # noqa: E402
+from benchpet.art import AlbumArt  # noqa: E402
+from benchpet.genre import GenreLookup  # noqa: E402
+from benchpet.sprites import ASSETS, load_library  # noqa: E402
 from benchpet.state import StateManager  # noqa: E402
 from benchpet.window import PetWindow  # noqa: E402
 
 
-def music_lines(event: MusicChanged) -> list[tuple[str, str]] | None:
+def music_lines(event: MusicChanged, art=None) -> list[tuple] | None:
     if event.status == "Stopped" or not event.title:
         return None
     icon = "▶" if event.playing else "⏸"
-    lines = [(f"{icon}  {event.title}", "title")]
+    lines = [("", "art", art)] if art is not None else []
+    lines.append((f"{icon}  {event.title}", "title"))
     if event.artist:
         lines.append((event.artist, "muted"))
     return lines
@@ -184,6 +188,7 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     app = QApplication(sys.argv)
     app.setApplicationName("bench-pet")
+    app.setWindowIcon(QIcon(str(ASSETS / "icon.png")))
     app.setQuitOnLastWindowClosed(False)
     signal.signal(signal.SIGINT, lambda *_: app.quit())
 
@@ -203,6 +208,7 @@ def main() -> int:
         weather_chance=config["weather"]["ambient_chance"],
         coding_ambient_interval=tuple(config["activity"]["ambient_interval"]),
         usage_react_percent=config["usage"]["react_at_percent"],
+        logging_seconds=config["log_tail"]["active_seconds"],
     )
     window.pet.activity_finished.connect(state.activity_finished)
     window.on_celebrate = lambda: state.react("celebrate")
@@ -243,11 +249,25 @@ def main() -> int:
         if speaking and window.speech.isVisible() and focus.is_focused(list(speaking[0].pids)):
             window.speech.dismiss()
     focus.on_change = on_focus_change
+    album_art = AlbumArt()
+
+    genre_lookup = GenreLookup()  # makes no requests until asked; gated by music.genre_lookup
+
     def on_music(e) -> None:
         if isinstance(e, MusicChanged):
             window.music = e
-            window.set_bubble_section("music", music_lines(e))
+            window.set_bubble_section("music", music_lines(e, album_art.get(e.art_url)))
+            # The state manager saw this track first, so a cached genre can go out straight away.
+            if config["music"]["genre_lookup"] and e.player and e.status != "Stopped":
+                genres = genre_lookup.get(e.title, e.artist, e.album)
+                if genres is not None:
+                    bus.publish(MusicGenre(e.title, e.artist, tuple(genres)))
     bus.event.connect(on_music)
+    # A remote cover arrives after its track; redraw if it's still the one showing.
+    album_art.ready.connect(lambda url: window.music and window.music.art_url == url
+                            and on_music(window.music))
+    genre_lookup.ready.connect(lambda title, artist, genres: config["music"]["genre_lookup"]
+                               and bus.publish(MusicGenre(title, artist, tuple(genres))))
     recent: deque[NotificationReceived] = deque(maxlen=config["notifications"]["recent"])
 
     def on_notification(e) -> None:
@@ -279,6 +299,8 @@ def main() -> int:
     bus.event.connect(on_calendar)
     bus.event.connect(lambda e: isinstance(e, CalendarReminder)
                       and window.flash_bubble(REMINDER_FLASH_SECONDS))
+    bus.event.connect(lambda e: isinstance(e, LogTailUpdated) and window.set_log_tail(e))
+
     def on_pomodoro(e) -> None:
         if isinstance(e, PomodoroUpdated):
             window.pomodoro_phase = e.phase
@@ -349,12 +371,27 @@ def main() -> int:
         sources.append(calendar_source)
     else:
         calendar_source = None
+    if config["sources"].get("log_tail"):
+        from benchpet.sources.logtail import LogTailSource
+        log_source = LogTailSource(bus, config["log_tail"])
+        sources.append(log_source)
+    else:
+        log_source = None
 
     def on_settings_applied(changed: set[str]) -> None:
         window.apply_settings()
         if "calendar" in changed and calendar_source:
             calendar_source.reconfigure(config["calendar"])
         window.calendar.set_events(calendar_events, has_feeds())
+        if "log_tail" in changed:
+            state.logging_seconds = config["log_tail"]["active_seconds"]
+            if log_source:
+                log_source.reconfigure(config["log_tail"])
+        if "music" in changed and window.music:
+            if config["music"]["genre_lookup"]:
+                on_music(window.music)  # look up (or reuse) the playing track's genre
+            else:  # back to the generic outfit
+                bus.publish(MusicGenre(window.music.title, window.music.artist, ()))
 
     def open_settings() -> None:
         from benchpet.settings import SettingsDialog
@@ -371,6 +408,7 @@ def main() -> int:
     window.show()
     code = app.exec()
     focus.stop()
+    genre_lookup.stop()
     for source in sources:
         source.stop()
     return code
